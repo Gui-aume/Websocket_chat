@@ -1,0 +1,229 @@
+<html>
+    <body>
+        <div id='login'>
+            <fieldset>
+                <legend>Login</legend>
+
+                <label for='user'>Username </label><input type='text' id='userLogin' /><br />
+                <label for='password'>Password (unused) </label><input type='password' id='password' :><br />
+                <button id='loginButton'>Connection</button>
+            </fieldset>
+        </div>
+        <div id='chatbox'>
+            <div id='form'>
+                <input type='text' id='input' />
+                <button id='button'>Send</button>
+            </div>
+            <div id='content'>
+                <div id='userList'>
+                    <h4>UserList</h4>
+                </div>
+                <div id='messages'></div>
+            </div>
+
+        </div>
+    </body>
+</html>
+
+<style>
+    #chatbox {
+        display: none;
+    }
+    #content, #form, #messages, #userList {
+        display: flex;
+    }
+    #login label {
+        display: inline-block;
+        min-width: 150px;
+        padding: 0.2em;
+    }
+    #login legend {
+        border: 1px black solid;
+        border-radius: 5px;
+        padding: 0.2em 0.8em ;
+    }
+    
+    #form {
+        justify-content: center;
+        margin: 1em 0;
+    }
+    #form > input {
+        width: 90%;
+        margin: 0 1em;
+    }
+
+    .box {
+        border: 2px solid #dedede;
+        background-color: #e1e1e1;
+        border-radius: 10px;
+        padding: 0.3em;
+        margin: 0.3em 0;
+    }
+    .box > h4,
+    .box > p {
+        margin: .2em;
+        font-size: 1em;
+        display: inline-block;
+    }
+
+    .owner {
+        border: 2px solid #a9a9c9;
+        background-color: #cbc9dd;
+    }
+
+    #userList {
+        flex-direction: column;
+        margin: .5em;
+        max-width: 15%;
+        word-wrap: break-word
+    }
+    #userList > h4 {
+        text-align: center;
+    }
+    #userList > p {
+        margin: .2em;
+        font-size: 1em;
+    }
+
+    #messages {
+        flex-direction: column-reverse;
+        align-items: stretch;
+        min-width: 20%;
+        margin: 0 5em 0 1em;
+    }
+</style>
+
+<script async>
+    // Set: users are unique
+    const users = new Set()
+    let logged = false
+    let username
+
+    // For login
+    const userLogin = document.querySelector('#userLogin')
+    const password = document.querySelector('#password')
+    const loginButton = document.querySelector('#loginButton')
+
+    // For messages
+    const button = document.querySelector('#button')
+    const input = document.querySelector('#input')
+    const userList = document.querySelector('#userList')
+    const messages = document.querySelector('#messages')
+
+    // Connect to server websocket
+    const socket = new WebSocket('ws://localhost:8080')
+
+    const sendLogin = e => {
+        // Event must be : login button and ((user input or password input) and Enter key)
+        if(e.target.id !== 'loginButton' && ((e.target.id !== 'password' || e.target.id !== 'userLogin') && e.keyCode !== 13)) return
+        if(logged || userLogin.value.length <= 0) return // ajouter le check du mdp
+
+        socket.send(JSON.stringify(['login', userLogin.value]))
+        username = userLogin.value
+    }
+
+    loginButton.addEventListener('click', sendLogin)
+    userLogin.addEventListener('keypress', sendLogin)
+    password.addEventListener('keypress', sendLogin)
+
+    // send chat message to server
+    const sendMessage = e => {
+        if(e.target.id !== 'button' && e.keyCode !== 13) return
+        
+        if(input.value.length > 0) {
+            socket.send(JSON.stringify(['message', input.value]))
+            input.value = ''
+        }
+    }
+
+    // remove login form and prepare chatbox
+    const login = () => {
+        logged = true
+
+        // DISABLE LOGIN AND ENABLE CHATBOX
+        document.querySelector('#login').remove()
+        document.querySelector('#chatbox').style.display = 'block'
+
+        button.addEventListener('click', sendMessage)
+        input.addEventListener('keypress', sendMessage)
+    }
+
+    // add received messages to chatbox
+    const newMessage = (author, text) => {
+        const box = document.createElement('article')
+        box.className = 'box'
+
+        const authorBox = document.createElement('h4')
+        const textBox = document.createElement('p')
+        authorBox.innerText = author || username
+        textBox.innerText = text
+
+        // Identify self messages
+        if(!author || author === username)
+            box.classList.add('owner')
+        
+        box.appendChild(authorBox)
+        box.appendChild(textBox)
+        messages.appendChild(box)
+    }
+
+    // Reload Render of userlist
+    const renderUserList = () => {
+        userList.innerHTML = '<h4>UserList</h4>'
+
+        Array.from(users).sort().forEach(u => {
+            const user = document.createElement('p')
+            user.innerText = u
+            if(u === username)
+                user.style.color = 'cornflowerblue'
+            userList.appendChild(user)
+        })
+    }
+
+    // handle websocket message received
+    socket.addEventListener('message', e => {
+        const data = JSON.parse(e.data)
+        // messages are array [message type, data1, data2, ...]
+        if(data?.length < 2) return
+
+        // On login message
+        if(!logged && data[0] === 'login') {
+            if(data[1] === 'success')
+                login()
+            else if (data[1] === 'used')
+                console.log('Login name already in use')
+            else if (data[1] === 'logged')
+                console.log('Already logged, if not : try to reload the page')
+        }
+        if(!logged) return
+
+        switch(data[0]) {
+            case 'message': // message broadcast from server
+                if(data[2])
+                    newMessage(data[1], data[2])
+            break
+            case 'history': // chat messages history : received on login
+                data[1].forEach(([author, text]) => newMessage(author, text))
+            break
+            case 'users': // connected users list : received on login
+                data[1].forEach(u => users.add(u))
+                renderUserList()
+            break
+            case 'join': // user join the chat
+                users.add(data[1])
+                renderUserList()
+            break
+            case 'leave': // user leave the chat
+                users.delete(data[1])
+                renderUserList()
+            break
+        }
+    })
+
+    // Refresh if disconnected
+    socket.addEventListener('close', () => {
+        // avoid reloading loop if server is unreachable
+        if(logged)
+            location.reload()
+    })
+</script>
