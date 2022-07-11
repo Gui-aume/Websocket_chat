@@ -8,8 +8,6 @@ This is a chat demo using Websocket
 - Node.js with 'ws' lib
 - Node with Fastify
 
-Frontend in Native JavaScript
-
 ----------------
 ## Launch
 
